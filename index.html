@@ -25,6 +25,8 @@
     .tag.spec{background:#ffe1e1;border-color:#ffb8b8}
     .tag.lv{background:#e8f7ea;border-color:#cbeccf}
     .muted{color:#777}
+    .level-info{display:flex;align-items:center;gap:8px;white-space:nowrap}
+    .level-raw{font-size:12px}
     .controls{margin-bottom:10px}
     .toggle{display:inline-flex;gap:8px;align-items:center}
     @media (max-width:700px){fieldset{min-width:100%}th:nth-child(3),td:nth-child(3){display:none}}
@@ -150,8 +152,10 @@ function render(){
         </div>
       </td>
       <td>
-        <span class="tag lv">${levelBucket(s.levelRaw)}</span>
-        <div class="muted">raw: ${s.levelRaw.toFixed(1)}</div>
+        <div class="level-info">
+          <span class="tag lv">${levelBucket(s.levelRaw)}</span>
+          <span class="muted level-raw">raw: ${s.levelRaw.toFixed(1)}</span>
+        </div>
       </td>
     </tr>
   `).join('') || '<tr><td colspan="3" class="muted">該当なし</td></tr>';
