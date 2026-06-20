@@ -59,8 +59,8 @@
         <label><input type="checkbox" id="popular">popular</label>
       </fieldset>
       <fieldset>
-        <legend>指定課題曲</legend>
-        <label><input type="checkbox" id="special">指定課題曲</label>
+        <legend>本戦課題曲</legend>
+        <label><input type="checkbox" id="special">本戦課題曲</label>
       </fieldset>
       <fieldset>
         <legend>レベル</legend>
@@ -95,15 +95,30 @@ async function loadSongs(){
   }
 }
 
-const levelBucket = v => v === 17.0 ? '17.0' : v === 17.5 ? '17.5' : v <= 18.5 ? '18.0-18.5' : '18.6-18.9';
+const levelBucket = v => {
+  if(v === 17.0) return '17.0';
+  if(v === 17.5) return '17.5';
+  if(v >= 18.0 && v <= 18.5) return '18.0-18.5';
+  if(v >= 18.6 && v <= 18.9) return '18.6-18.9';
+  if(v >= 19.0 && v <= 19.5) return '19.0-19.5';
+  if(v >= 19.6 && v <= 19.9) return '19.6-19.9';
+  if(v >= 20.0) return '20.0+';
+  return 'unknown';
+};
+
 const tbody = document.getElementById('tbody');
 const count = document.getElementById('count');
 const q = document.getElementById('q');
 const modeBtn = document.getElementById('mode');
 let genreMode = 'OR';
 
-function selected(cls){return [...document.querySelectorAll('.'+cls+':checked')].map(x=>x.value)}
-function checked(id){return document.getElementById(id).checked}
+function selected(cls){
+  return [...document.querySelectorAll('.' + cls + ':checked')].map(x => x.value);
+}
+
+function checked(id){
+  return document.getElementById(id).checked;
+}
 
 function render(){
   const qs = q.value.trim().toLowerCase();
@@ -114,25 +129,58 @@ function render(){
 
   const filtered = songs.filter(s => {
     if(qs && !s.title.toLowerCase().includes(qs)) return false;
+
     if(genres.length){
       const hit = genres.filter(g => s.genres.includes(g));
       if(genreMode === 'OR' ? hit.length === 0 : hit.length !== genres.length) return false;
     }
+
     if(usePop && !s.popular) return false;
     if(useSpec && !s.special) return false;
     if(levels.length && !levels.includes(levelBucket(s.levelRaw))) return false;
+
     return true;
   });
 
   tbody.innerHTML = filtered.map(s => `
     <tr>
       <td>${s.url ? `<a href="${s.url}" target="_blank" rel="noopener noreferrer">${s.title}</a>` : s.title}</td>
-      <td><div class="tags">${s.genres.map(g=>`<span class="tag">${g}</span>`).join('')}${s.pop?'<span class="tag pop">popular</span>':''}${s.special?'<span class="tag spec">special</span>':''}</div></td>
-      <td><span class="tag lv">${levelBucket(s.levelRaw)}</span><div class="muted">raw: ${s.levelRaw.toFixed(1)}</div></td>
-    </tr>`).join('') || '<tr><td colspan="3" class="muted">該当なし</td></tr>';
+      <td>
+        <div class="tags">
+          ${s.genres.map(g => `<span class="tag">${g}</span>`).join('')}
+          ${s.popular ? '<span class="tag pop">popular</span>' : ''}
+          ${s.special ? '<span class="tag spec">本戦課題曲</span>' : ''}
+        </div>
+      </td>
+      <td>
+        <span class="tag lv">${levelBucket(s.levelRaw)}</span>
+        <div class="muted">raw: ${s.levelRaw.toFixed(1)}</div>
+      </td>
+    </tr>
+  `).join('') || '<tr><td colspan="3" class="muted">該当なし</td></tr>';
+
   count.textContent = `${filtered.length}件 / ${songs.length}件`;
 }
 
-modeBtn.onclick = () => { genreMode = genreMode === 'OR' ? 'AND' : 'OR'; modeBtn.textContent = genreMode; loadSongs();</script>
+modeBtn.onclick = () => {
+  genreMode = genreMode === 'OR' ? 'AND' : 'OR';
+  modeBtn.textContent = genreMode;
+  render();
+};
+
+document.getElementById('clear').onclick = () => {
+  q.value = '';
+  document.querySelectorAll('input[type=checkbox]').forEach(x => x.checked = false);
+  genreMode = 'OR';
+  modeBtn.textContent = 'OR';
+  render();
+};
+
+[q, ...document.querySelectorAll('input[type=checkbox]')].forEach(el => {
+  el.addEventListener('input', render);
+});
+
+loadSongs();
+</script>
 </body>
 </html>
