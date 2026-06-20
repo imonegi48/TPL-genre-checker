@@ -29,10 +29,10 @@
     .level-raw{font-size:12px}
     .controls{margin-bottom:10px}
     .toggle{display:inline-flex;gap:8px;align-items:center}
-    .vote-actions{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
-    .vote-btn{padding:6px 10px;font-size:12px}
+    .list{overflow-x:auto}
+    .vote-actions{display:inline-flex;gap:6px;align-items:center;white-space:nowrap}
+    .vote-btn{padding:6px 9px;font-size:12px;line-height:1.2;white-space:nowrap}
     .vote-btn.active{background:#dff3ff;border-color:#87cfff;font-weight:700}
-    .vote-state{font-size:12px;color:#555;margin-top:6px}
     @media (max-width:700px){fieldset{min-width:100%}th:nth-child(3),td:nth-child(3){display:none}}
   </style>
 </head>
@@ -86,7 +86,7 @@
 
   <div class="list">
     <table>
-      <thead><tr><th>曲名</th><th>タグ</th><th>レベル</th></tr></thead>
+      <thead><tr><th>曲名</th><th>タグ</th><th>レベル</th><th>投票</th></tr></thead>
       <tbody id="tbody"></tbody>
     </table>
   </div>
@@ -102,7 +102,7 @@ async function loadSongs(){
     render();
   }catch(err){
     console.error(err);
-    tbody.innerHTML = '<tr><td colspan="3" class="muted">songs.json の読み込みに失敗しました</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="4" class="muted">songs.json の読み込みに失敗しました</td></tr>';
     count.textContent = '読み込み失敗';
   }
 }
@@ -121,11 +121,6 @@ const modeBtn = document.getElementById('mode');
 let genreMode = 'OR';
 
 const VOTE_STORAGE_KEY = 'tpl-genre-checker-votes-v1';
-
-const VOTE_LABELS = {
-  'no-chart': '譜面無い',
-  'need-practice': '要対策'
-};
 
 let votes = loadVotes();
 
@@ -165,6 +160,15 @@ function escapeAttr(value){
     .replace(/>/g, '&gt;');
 }
 
+function getVoteCounts(song){
+  const vote = votes[chartKey(song)] || '';
+
+  return {
+    noChart: vote === 'no-chart' ? 1 : 0,
+    needPractice: vote === 'need-practice' ? 1 : 0
+  };
+}
+
 function setVote(key, value){
   if(votes[key] === value){
     delete votes[key];
@@ -179,6 +183,7 @@ function setVote(key, value){
 function renderVoteControls(song){
   const key = chartKey(song);
   const currentVote = votes[key] || '';
+  const counts = getVoteCounts(song);
   const escapedKey = escapeAttr(key);
 
   return `
@@ -188,16 +193,13 @@ function renderVoteControls(song){
         type="button"
         data-vote-key="${escapedKey}"
         data-vote-value="no-chart"
-      >譜面無い</button>
+      >譜面無い ${counts.noChart}</button>
       <button
         class="vote-btn ${currentVote === 'need-practice' ? 'active' : ''}"
         type="button"
         data-vote-key="${escapedKey}"
         data-vote-value="need-practice"
-      >要対策</button>
-    </div>
-    <div class="vote-state">
-      ${currentVote ? `自分: ${VOTE_LABELS[currentVote]}` : '未投票'}
+      >要対策 ${counts.needPractice}</button>
     </div>
   `;
 }
