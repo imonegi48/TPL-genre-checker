@@ -29,6 +29,10 @@
     .level-raw{font-size:12px}
     .controls{margin-bottom:10px}
     .toggle{display:inline-flex;gap:8px;align-items:center}
+    .vote-actions{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+    .vote-btn{padding:6px 10px;font-size:12px}
+    .vote-btn.active{background:#dff3ff;border-color:#87cfff;font-weight:700}
+    .vote-state{font-size:12px;color:#555;margin-top:6px}
     @media (max-width:700px){fieldset{min-width:100%}th:nth-child(3),td:nth-child(3){display:none}}
   </style>
 </head>
@@ -71,6 +75,12 @@
         <label><input type="checkbox" class="level" value="18.0-18.5">18.0〜18.5</label>
         <label><input type="checkbox" class="level" value="18.6-18.9">18.6〜18.9</label>
       </fieldset>
+      <fieldset>
+        <legend>自分の投票</legend>
+        <label><input type="checkbox" class="vote-filter" value="no-chart">譜面無い</label>
+        <label><input type="checkbox" class="vote-filter" value="need-practice">要対策</label>
+        <label><input type="checkbox" class="vote-filter" value="unvoted">未投票</label>
+      </fieldset>
     </div>
   </div>
 
@@ -104,12 +114,93 @@ const levelBucket = v => {
   if(v >= 18.6 && v <= 18.9) return '18.6-18.9';
   return 'unknown';
 };
-
 const tbody = document.getElementById('tbody');
 const count = document.getElementById('count');
 const q = document.getElementById('q');
 const modeBtn = document.getElementById('mode');
 let genreMode = 'OR';
+
+const VOTE_STORAGE_KEY = 'tpl-genre-checker-votes-v1';
+
+const VOTE_LABELS = {
+  'no-chart': '譜面無い',
+  'need-practice': '要対策'
+};
+
+let votes = loadVotes();
+
+function loadVotes(){
+  try{
+    const saved = JSON.parse(localStorage.getItem(VOTE_STORAGE_KEY) || '{}');
+
+    if(saved && typeof saved === 'object' && !Array.isArray(saved)){
+      return saved;
+    }
+  }catch(err){
+    console.warn('投票データの読み込みに失敗しました', err);
+  }
+
+  return {};
+}
+
+function saveVotes(){
+  localStorage.setItem(VOTE_STORAGE_KEY, JSON.stringify(votes));
+}
+
+function chartKey(song){
+  const match = String(song.url || '').match(/\/s\/([^/]+)\/([^/]+)\//);
+
+  if(match){
+    return `${match[1]}-${match[2]}`;
+  }
+
+  return `${song.title}@@${Number(song.levelRaw).toFixed(1)}`;
+}
+
+function escapeAttr(value){
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function setVote(key, value){
+  if(votes[key] === value){
+    delete votes[key];
+  }else{
+    votes[key] = value;
+  }
+
+  saveVotes();
+  render();
+}
+
+function renderVoteControls(song){
+  const key = chartKey(song);
+  const currentVote = votes[key] || '';
+  const escapedKey = escapeAttr(key);
+
+  return `
+    <div class="vote-actions">
+      <button
+        class="vote-btn ${currentVote === 'no-chart' ? 'active' : ''}"
+        type="button"
+        data-vote-key="${escapedKey}"
+        data-vote-value="no-chart"
+      >譜面無い</button>
+      <button
+        class="vote-btn ${currentVote === 'need-practice' ? 'active' : ''}"
+        type="button"
+        data-vote-key="${escapedKey}"
+        data-vote-value="need-practice"
+      >要対策</button>
+    </div>
+    <div class="vote-state">
+      ${currentVote ? `自分: ${VOTE_LABELS[currentVote]}` : '未投票'}
+    </div>
+  `;
+}
 
 function selected(cls){
   return [...document.querySelectorAll('.' + cls + ':checked')].map(x => x.value);
@@ -123,6 +214,7 @@ function render(){
   const qs = q.value.trim().toLowerCase();
   const genres = selected('genre');
   const levels = selected('level');
+  const voteFilters = selected('vote-filter');
   const usePop = checked('popular');
   const useSpec = checked('special');
 
@@ -137,6 +229,14 @@ function render(){
     if(usePop && !s.popular) return false;
     if(useSpec && !s.special) return false;
     if(levels.length && !levels.includes(levelBucket(s.levelRaw))) return false;
+
+    if(voteFilters.length){
+      const myVote = votes[chartKey(s)] || 'unvoted';
+
+      if(!voteFilters.includes(myVote)){
+        return false;
+      }
+    }
 
     return true;
   });
@@ -157,8 +257,9 @@ function render(){
           <span class="muted level-raw">raw: ${s.levelRaw.toFixed(1)}</span>
         </div>
       </td>
+      <td>${renderVoteControls(s)}</td>
     </tr>
-  `).join('') || '<tr><td colspan="3" class="muted">該当なし</td></tr>';
+  `).join('') || '<tr><td colspan="4" class="muted">該当なし</td></tr>';
 
   count.textContent = `${filtered.length}件 / ${songs.length}件`;
 }
@@ -179,6 +280,16 @@ document.getElementById('clear').onclick = () => {
 
 [q, ...document.querySelectorAll('input[type=checkbox]')].forEach(el => {
   el.addEventListener('input', render);
+});
+
+tbody.addEventListener('click', event => {
+  const button = event.target.closest('.vote-btn');
+
+  if(!button){
+    return;
+  }
+
+  setVote(button.dataset.voteKey, button.dataset.voteValue);
 });
 
 loadSongs();
