@@ -1,0 +1,38 @@
+[
+  {
+    "id": 1,
+    "title": "仮曲A",
+    "genres": ["notes", "tsumami"],
+    "popular": true,
+    "special": false,
+    "levelRaw": 17.0,
+    "url": ""
+  },
+  {
+    "id": 2,
+    "title": "仮曲B",
+    "genres": ["peak"],
+    "popular": false,
+    "special": true,
+    "levelRaw": 17.5,
+    "url": ""
+  },
+  {
+    "id": 3,
+    "title": "仮曲C",
+    "genres": ["hand-trip", "namco"],
+    "popular": true,
+    "special": true,
+    "levelRaw": 18.2,
+    "url": ""
+  },
+  {
+    "id": 4,
+    "title": "仮曲D",
+    "genres": ["tricky"],
+    "popular": false,
+    "special": false,
+    "levelRaw": 18.7,
+    "url": ""
+  }
+]

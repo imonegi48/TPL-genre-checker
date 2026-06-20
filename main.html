@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>音ゲー課題曲フィルタ</title>
+  <style>
+    body{font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;margin:0;padding:16px;background:#f7f7f7;color:#222}
+    .app{max-width:1100px;margin:0 auto}
+    h1{font-size:20px;margin:0 0 12px}
+    .panel,.list{background:#fff;border:1px solid #ddd;border-radius:12px;padding:12px;margin-bottom:12px}
+    .row{display:flex;flex-wrap:wrap;gap:12px;align-items:center}
+    fieldset{border:1px solid #ddd;border-radius:10px;padding:10px 12px;min-width:220px}
+    legend{padding:0 6px;font-weight:700}
+    label{display:inline-flex;gap:6px;align-items:center;margin:4px 10px 4px 0}
+    input[type="text"]{width:min(100%,360px);padding:10px;border:1px solid #ccc;border-radius:8px}
+    button{padding:10px 14px;border:1px solid #bbb;border-radius:8px;background:#fafafa;cursor:pointer}
+    button:hover{background:#f0f0f0}
+    .meta{font-size:14px;color:#555}
+    table{width:100%;border-collapse:collapse}
+    th,td{padding:10px 8px;border-bottom:1px solid #eee;text-align:left;vertical-align:top}
+    .tags{display:flex;flex-wrap:wrap;gap:6px}
+    .tag{font-size:12px;background:#eef3ff;border:1px solid #d8e2ff;border-radius:999px;padding:3px 8px}
+    .tag.pop{background:#fff3d9;border-color:#ffe0a3}
+    .tag.spec{background:#ffe1e1;border-color:#ffb8b8}
+    .tag.lv{background:#e8f7ea;border-color:#cbeccf}
+    .muted{color:#777}
+    .controls{margin-bottom:10px}
+    .toggle{display:inline-flex;gap:8px;align-items:center}
+    @media (max-width:700px){fieldset{min-width:100%}th:nth-child(3),td:nth-child(3){display:none}}
+  </style>
+</head>
+<body>
+<div class="app">
+  <h1>音ゲー課題曲フィルタ</h1>
+  <div class="panel controls">
+    <div class="row">
+      <input id="q" type="text" placeholder="曲名を検索">
+      <button id="clear">全解除</button>
+      <div class="toggle"><span>ジャンル条件</span><button id="mode" type="button">OR</button></div>
+      <div class="meta" id="count">0件</div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="row">
+      <fieldset>
+        <legend>ジャンル</legend>
+        <label><input type="checkbox" class="genre" value="notes">notes</label>
+        <label><input type="checkbox" class="genre" value="peak">peak</label>
+        <label><input type="checkbox" class="genre" value="one-hand">one-hand</label>
+        <label><input type="checkbox" class="genre" value="tsumami">tsumami</label>
+        <label><input type="checkbox" class="genre" value="hand-trip">hand-trip</label>
+        <label><input type="checkbox" class="genre" value="tricky">tricky</label>
+        <label><input type="checkbox" class="genre" value="namco">namco</label>
+      </fieldset>
+      <fieldset>
+        <legend>Popular</legend>
+        <label><input type="checkbox" id="popular">popular</label>
+      </fieldset>
+      <fieldset>
+        <legend>指定課題曲</legend>
+        <label><input type="checkbox" id="special">指定課題曲</label>
+      </fieldset>
+      <fieldset>
+        <legend>レベル</legend>
+        <label><input type="checkbox" class="level" value="17.0">17.0</label>
+        <label><input type="checkbox" class="level" value="17.5">17.5</label>
+        <label><input type="checkbox" class="level" value="18.0-18.5">18.0〜18.5</label>
+        <label><input type="checkbox" class="level" value="18.6-18.9">18.6〜18.9</label>
+      </fieldset>
+    </div>
+  </div>
+
+  <div class="list">
+    <table>
+      <thead><tr><th>曲名</th><th>タグ</th><th>レベル</th></tr></thead>
+      <tbody id="tbody"></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+let songs = [];
+
+async function loadSongs(){
+  const res = await fetch('./songs.json');
+  songs = await res.json();
+  loadSongs();
+}
+
+const levelBucket = v => v === 17.0 ? '17.0' : v === 17.5 ? '17.5' : v <= 18.5 ? '18.0-18.5' : '18.6-18.9';
+const tbody = document.getElementById('tbody');
+const count = document.getElementById('count');
+const q = document.getElementById('q');
+const modeBtn = document.getElementById('mode');
+let genreMode = 'OR';
+
+function selected(cls){return [...document.querySelectorAll('.'+cls+':checked')].map(x=>x.value)}
+function checked(id){return document.getElementById(id).checked}
+
+function render(){
+  const qs = q.value.trim().toLowerCase();
+  const genres = selected('genre');
+  const levels = selected('level');
+  const usePop = checked('popular');
+  const useSpec = checked('special');
+
+  const filtered = songs.filter(s => {
+    if(qs && !s.title.toLowerCase().includes(qs)) return false;
+    if(genres.length){
+      const hit = genres.filter(g => s.genres.includes(g));
+      if(genreMode === 'OR' ? hit.length === 0 : hit.length !== genres.length) return false;
+    }
+    if(usePop && !s.popular) return false;
+    if(useSpec && !s.special) return false;
+    if(levels.length && !levels.includes(levelBucket(s.levelRaw))) return false;
+    return true;
+  });
+
+  tbody.innerHTML = filtered.map(s => `
+    <tr>
+      <td>${s.url ? `<a href="${s.url}" target="_blank" rel="noopener noreferrer">${s.title}</a>` : s.title}</td>
+      <td><div class="tags">${s.genres.map(g=>`<span class="tag">${g}</span>`).join('')}${s.pop?'<span class="tag pop">popular</span>':''}${s.special?'<span class="tag spec">special</span>':''}</div></td>
+      <td><span class="tag lv">${levelBucket(s.levelRaw)}</span><div class="muted">raw: ${s.levelRaw.toFixed(1)}</div></td>
+    </tr>`).join('') || '<tr><td colspan="3" class="muted">該当なし</td></tr>';
+  count.textContent = `${filtered.length}件 / ${songs.length}件`;
+}
+
+modeBtn.onclick = () => { genreMode = genreMode === 'OR' ? 'AND' : 'OR'; modeBtn.textContent = genreMode; loadSongs();</script>
+</body>
+</html>
