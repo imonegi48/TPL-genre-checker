@@ -84,9 +84,15 @@
 let songs = [];
 
 async function loadSongs(){
-  const res = await fetch('./songs.json');
-  songs = await res.json();
-  loadSongs();
+  try{
+    const res = await fetch('./songs.json');
+    songs = await res.json();
+    render();
+  }catch(err){
+    console.error(err);
+    tbody.innerHTML = '<tr><td colspan="3" class="muted">songs.json の読み込みに失敗しました</td></tr>';
+    count.textContent = '読み込み失敗';
+  }
 }
 
 const levelBucket = v => v === 17.0 ? '17.0' : v === 17.5 ? '17.5' : v <= 18.5 ? '18.0-18.5' : '18.6-18.9';
