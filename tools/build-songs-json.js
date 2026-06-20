@@ -4,6 +4,7 @@ const path = require('path');
 const ROOT_DIR = path.resolve(__dirname, '..');
 const RAW_DIR = path.join(ROOT_DIR, 'raw');
 const OUT_FILE = path.join(ROOT_DIR, 'songs.json');
+const SDVX_LINKS_FILE = path.join(RAW_DIR, 'sdvxindex-links.csv');
 
 const SOURCE_URL = 'https://p.eagate.573.jp/game/bpl/season5/sdvx/about/music/final/list/index.html';
 
@@ -28,10 +29,16 @@ function isTargetLevel(levelRaw){
 }
 
 function normalizeTitle(title){
-  return title
+  return String(title)
+    .normalize('NFKC')
+    .replace(/\u3000/g, ' ')
     .replace(/\s+/g, ' ')
     .replace(/[“”]/g, '"')
     .replace(/[’]/g, "'")
+    .replace(/[‐-‒–—―ー]/g, '-')
+    .replace(/[：]/g, ':')
+    .replace(/[！]/g, '!')
+    .replace(/[？]/g, '?')
     .trim();
 }
 
@@ -41,6 +48,86 @@ function cleanLine(line){
     .replace(/^\s*[・●]\s*/, '')
     .replace(/^\s*[-–—]\s*/, '')
     .trim();
+}
+
+function makeSongKey(title, levelRaw){
+  return `${normalizeTitle(title)}@@${Number(levelRaw).toFixed(1)}`;
+}
+
+function parseCsvLine(line){
+  const result = [];
+  let current = '';
+  let inQuotes = false;
+
+  for(let i = 0; i < line.length; i++){
+    const char = line[i];
+    const next = line[i + 1];
+
+    if(char === '"' && inQuotes && next === '"'){
+      current += '"';
+      i++;
+      continue;
+    }
+
+    if(char === '"'){
+      inQuotes = !inQuotes;
+      continue;
+    }
+
+    if(char === ',' && !inQuotes){
+      result.push(current.trim());
+      current = '';
+      continue;
+    }
+
+    current += char;
+  }
+
+  result.push(current.trim());
+
+  return result;
+}
+
+function loadSdvxIndexLinks(){
+  const links = new Map();
+
+  if(!fs.existsSync(SDVX_LINKS_FILE)){
+    fs.writeFileSync(SDVX_LINKS_FILE, 'title,levelRaw,url\n', 'utf8');
+    console.log('作成しました: raw/sdvxindex-links.csv');
+    return links;
+  }
+
+  const text = fs.readFileSync(SDVX_LINKS_FILE, 'utf8').replace(/^\uFEFF/, '');
+  const lines = text
+    .split('\n')
+    .map(line => line.trim())
+    .filter(Boolean);
+
+  for(const line of lines){
+    const [title, levelRawText, url] = parseCsvLine(line);
+
+    if(title === 'title' && levelRawText === 'levelRaw'){
+      continue;
+    }
+
+    if(!title || !levelRawText || !url){
+      continue;
+    }
+
+    const levelRaw = Number(levelRawText);
+
+    if(!Number.isFinite(levelRaw)){
+      continue;
+    }
+
+    const key = makeSongKey(title, levelRaw);
+
+    links.set(key, url);
+  }
+
+  console.log(`sdvxindex-links.csv: ${links.size}件`);
+
+  return links;
 }
 
 function parseLevel(value){
@@ -137,12 +224,13 @@ function parseText(text){
   return records;
 }
 
-function addRecord(map, record, source){
+function addRecord(map, record, source, urlMap){
   if(!isTargetLevel(record.levelRaw)){
     return;
   }
 
-  const key = `${normalizeTitle(record.title)}@@${record.levelRaw.toFixed(1)}`;
+  const key = makeSongKey(record.title, record.levelRaw);
+  const chartUrl = urlMap.get(key) || '';
 
   if(!map.has(key)){
     map.set(key, {
@@ -152,11 +240,15 @@ function addRecord(map, record, source){
       popular: false,
       special: false,
       levelRaw: record.levelRaw,
-      url: SOURCE_URL
+      url: chartUrl
     });
   }
 
   const song = map.get(key);
+
+  if(chartUrl){
+    song.url = chartUrl;
+  }
 
   if(source.genre && !song.genres.includes(source.genre)){
     song.genres.push(source.genre);
@@ -176,6 +268,7 @@ function main(){
     fs.mkdirSync(RAW_DIR, { recursive: true });
   }
 
+  const urlMap = loadSdvxIndexLinks();
   const songMap = new Map();
   let totalRecords = 0;
 
@@ -196,7 +289,7 @@ function main(){
     console.log(`${source.file}: ${records.length}件`);
 
     for(const record of records){
-      addRecord(songMap, record, source);
+      addRecord(songMap, record, source, urlMap);
     }
   }
 

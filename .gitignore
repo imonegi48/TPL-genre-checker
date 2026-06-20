@@ -1,3 +1,7 @@
 .vscode/
 node_modules/
 *.log
+source/
+raw/sdvxindex-links-auto.csv
+raw/sdvxindex-links-template.csv
+raw/sdvxindex-links-unresolved.csv
