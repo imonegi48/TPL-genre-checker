@@ -82,6 +82,11 @@
         <label><input type="checkbox" class="vote-filter" value="need-practice">要対策</label>
         <label><input type="checkbox" class="vote-filter" value="unvoted">未投票</label>
       </fieldset>
+      <fieldset>
+        <legend>みんなの投票</legend>
+        <label><input type="checkbox" class="all-vote-filter" value="no-chart">譜面無い</label>
+        <label><input type="checkbox" class="all-vote-filter" value="need-practice">要対策</label>
+      </fieldset>
     </div>
   </div>
 
@@ -317,6 +322,7 @@ function render(){
   const genres = selected('genre');
   const levels = selected('level');
   const voteFilters = selected('vote-filter');
+  const allVoteFilters = selected('all-vote-filter');
   const usePop = checked('popular');
   const useSpec = checked('special');
 
@@ -336,6 +342,17 @@ function render(){
       const myVote = votes[chartKey(s)] || 'unvoted';
 
       if(!voteFilters.includes(myVote)){
+        return false;
+      }
+    }
+
+    if(allVoteFilters.length){
+      const counts = getVoteCounts(s);
+      const hasAllVote =
+        (allVoteFilters.includes('no-chart') && counts.noChart > 0) ||
+        (allVoteFilters.includes('need-practice') && counts.needPractice > 0);
+
+      if(!hasAllVote){
         return false;
       }
     }
