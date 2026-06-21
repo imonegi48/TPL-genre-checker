@@ -35,6 +35,7 @@
     .vote-btn.active{background:#dff3ff;border-color:#87cfff;font-weight:700}
     @media (max-width:700px){fieldset{min-width:100%}th:nth-child(3),td:nth-child(3){display:none}}
   </style>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
 <div class="app">
@@ -120,26 +121,32 @@ const q = document.getElementById('q');
 const modeBtn = document.getElementById('mode');
 let genreMode = 'OR';
 
-const VOTE_STORAGE_KEY = 'tpl-genre-checker-votes-v1';
+const SUPABASE_URL = 'https://dnxzzspcpbysgfcwettc.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_uiL57OEEf1NddK_bfpgjbQ_HYQPBuz6';
 
-let votes = loadVotes();
+const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
-function loadVotes(){
-  try{
-    const saved = JSON.parse(localStorage.getItem(VOTE_STORAGE_KEY) || '{}');
+const VOTER_ID_STORAGE_KEY = 'tpl-genre-checker-voter-id-v1';
+const POLL_INTERVAL_MS = 15000;
 
-    if(saved && typeof saved === 'object' && !Array.isArray(saved)){
-      return saved;
-    }
-  }catch(err){
-    console.warn('投票データの読み込みに失敗しました', err);
+let votes = {};
+let voteCountsByChart = {};
+const voterId = getOrCreateVoterId();
+
+function getOrCreateVoterId(){
+  const saved = localStorage.getItem(VOTER_ID_STORAGE_KEY);
+
+  if(saved){
+    return saved;
   }
 
-  return {};
-}
+  const id = crypto.randomUUID
+    ? crypto.randomUUID()
+    : `voter-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
-function saveVotes(){
-  localStorage.setItem(VOTE_STORAGE_KEY, JSON.stringify(votes));
+  localStorage.setItem(VOTER_ID_STORAGE_KEY, id);
+
+  return id;
 }
 
 function chartKey(song){
@@ -160,24 +167,117 @@ function escapeAttr(value){
     .replace(/>/g, '&gt;');
 }
 
-function getVoteCounts(song){
-  const vote = votes[chartKey(song)] || '';
-
+function emptyVoteCounts(){
   return {
-    noChart: vote === 'no-chart' ? 1 : 0,
-    needPractice: vote === 'need-practice' ? 1 : 0
+    noChart: 0,
+    needPractice: 0
   };
 }
 
-function setVote(key, value){
-  if(votes[key] === value){
-    delete votes[key];
-  }else{
-    votes[key] = value;
+function getVoteCounts(song){
+  return voteCountsByChart[chartKey(song)] || emptyVoteCounts();
+}
+
+function addVoteCount(key, vote, amount){
+  if(vote !== 'no-chart' && vote !== 'need-practice'){
+    return;
   }
 
-  saveVotes();
+  if(!voteCountsByChart[key]){
+    voteCountsByChart[key] = emptyVoteCounts();
+  }
+
+  if(vote === 'no-chart'){
+    voteCountsByChart[key].noChart = Math.max(0, voteCountsByChart[key].noChart + amount);
+  }
+
+  if(vote === 'need-practice'){
+    voteCountsByChart[key].needPractice = Math.max(0, voteCountsByChart[key].needPractice + amount);
+  }
+}
+
+function applyOptimisticVote(key, beforeVote, afterVote){
+  if(beforeVote === afterVote){
+    return;
+  }
+
+  addVoteCount(key, beforeVote, -1);
+  addVoteCount(key, afterVote, 1);
+}
+
+async function loadVotesFromSupabase(){
+  const { data, error } = await supabaseClient
+    .from('votes')
+    .select('chart_key,voter_id,vote');
+
+  if(error){
+    console.error('投票データの読み込みに失敗しました', error);
+    return;
+  }
+
+  const nextVotes = {};
+  const nextCounts = {};
+
+  for(const row of data || []){
+    if(row.vote === 'no-chart' || row.vote === 'need-practice'){
+      if(!nextCounts[row.chart_key]){
+        nextCounts[row.chart_key] = emptyVoteCounts();
+      }
+
+      if(row.vote === 'no-chart'){
+        nextCounts[row.chart_key].noChart++;
+      }
+
+      if(row.vote === 'need-practice'){
+        nextCounts[row.chart_key].needPractice++;
+      }
+    }
+
+    if(row.voter_id === voterId){
+      if(row.vote === 'no-chart' || row.vote === 'need-practice'){
+        nextVotes[row.chart_key] = row.vote;
+      }
+    }
+  }
+
+  votes = nextVotes;
+  voteCountsByChart = nextCounts;
+
   render();
+}
+
+async function setVote(key, value){
+  const beforeVote = votes[key] || 'none';
+  const afterVote = beforeVote === value ? 'none' : value;
+
+  if(afterVote === 'none'){
+    delete votes[key];
+  }else{
+    votes[key] = afterVote;
+  }
+
+  applyOptimisticVote(key, beforeVote, afterVote);
+  render();
+
+  const { error } = await supabaseClient
+    .from('votes')
+    .upsert({
+      chart_key: key,
+      voter_id: voterId,
+      vote: afterVote,
+      updated_at: new Date().toISOString()
+    }, {
+      onConflict: 'chart_key,voter_id'
+    });
+
+  if(error){
+    console.error('投票の保存に失敗しました', error);
+    alert('投票の保存に失敗しました。少し待ってから再読み込みしてください。');
+    await loadVotesFromSupabase();
+    return;
+  }
+
+  await loadVotesFromSupabase();
 }
 
 function renderVoteControls(song){
@@ -294,7 +394,16 @@ tbody.addEventListener('click', event => {
   setVote(button.dataset.voteKey, button.dataset.voteValue);
 });
 
-loadSongs();
+async function init(){
+  await loadSongs();
+  await loadVotesFromSupabase();
+
+  setInterval(() => {
+    loadVotesFromSupabase();
+  }, POLL_INTERVAL_MS);
+}
+
+init();
 </script>
 </body>
 </html>
