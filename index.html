@@ -92,7 +92,7 @@
 
   <div class="list">
     <table>
-      <thead><tr><th>曲名</th><th>タグ</th><th>レベル</th><th>投票</th></tr></thead>
+      <thead><tr><th>曲名</th><th>タグ</th><th>レベル</th><th>投票</th><th>担当</th></tr></thead>
       <tbody id="tbody"></tbody>
     </table>
   </div>
@@ -108,7 +108,7 @@ async function loadSongs(){
     render();
   }catch(err){
     console.error(err);
-    tbody.innerHTML = '<tr><td colspan="4" class="muted">songs.json の読み込みに失敗しました</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="5" class="muted">songs.json の読み込みに失敗しました</td></tr>';
     count.textContent = '読み込み失敗';
   }
 }
@@ -136,6 +136,8 @@ const POLL_INTERVAL_MS = 15000;
 
 let votes = {};
 let voteCountsByChart = {};
+let assignments = {};
+let assignmentCountsByChart = {};
 const voterId = getOrCreateVoterId();
 
 function getOrCreateVoterId(){
@@ -309,6 +311,143 @@ function renderVoteControls(song){
   `;
 }
 
+function emptyAssignmentCounts(){
+  return {
+    giveUp: 0,
+    take: 0
+  };
+}
+
+function getAssignmentCounts(song){
+  return assignmentCountsByChart[chartKey(song)] || emptyAssignmentCounts();
+}
+
+function addAssignmentCount(key, assignment, amount){
+  if(assignment !== 'give-up' && assignment !== 'take'){
+    return;
+  }
+
+  if(!assignmentCountsByChart[key]){
+    assignmentCountsByChart[key] = emptyAssignmentCounts();
+  }
+
+  if(assignment === 'give-up'){
+    assignmentCountsByChart[key].giveUp = Math.max(0, assignmentCountsByChart[key].giveUp + amount);
+  }
+
+  if(assignment === 'take'){
+    assignmentCountsByChart[key].take = Math.max(0, assignmentCountsByChart[key].take + amount);
+  }
+}
+
+function applyOptimisticAssignment(key, beforeAssignment, afterAssignment){
+  if(beforeAssignment === afterAssignment){
+    return;
+  }
+
+  addAssignmentCount(key, beforeAssignment, -1);
+  addAssignmentCount(key, afterAssignment, 1);
+}
+
+async function loadAssignmentsFromSupabase(){
+  const { data, error } = await supabaseClient
+    .from('assignments')
+    .select('chart_key,voter_id,assignment');
+
+  if(error){
+    console.error('担当データの読み込みに失敗しました', error);
+    return;
+  }
+
+  const nextAssignments = {};
+  const nextCounts = {};
+
+  for(const row of data || []){
+    if(row.assignment === 'give-up' || row.assignment === 'take'){
+      if(!nextCounts[row.chart_key]){
+        nextCounts[row.chart_key] = emptyAssignmentCounts();
+      }
+
+      if(row.assignment === 'give-up'){
+        nextCounts[row.chart_key].giveUp++;
+      }
+
+      if(row.assignment === 'take'){
+        nextCounts[row.chart_key].take++;
+      }
+    }
+
+    if(row.voter_id === voterId){
+      if(row.assignment === 'give-up' || row.assignment === 'take'){
+        nextAssignments[row.chart_key] = row.assignment;
+      }
+    }
+  }
+
+  assignments = nextAssignments;
+  assignmentCountsByChart = nextCounts;
+
+  render();
+}
+
+async function setAssignment(key, value){
+  const beforeAssignment = assignments[key] || 'none';
+  const afterAssignment = beforeAssignment === value ? 'none' : value;
+
+  if(afterAssignment === 'none'){
+    delete assignments[key];
+  }else{
+    assignments[key] = afterAssignment;
+  }
+
+  applyOptimisticAssignment(key, beforeAssignment, afterAssignment);
+  render();
+
+  const { error } = await supabaseClient
+    .from('assignments')
+    .upsert({
+      chart_key: key,
+      voter_id: voterId,
+      assignment: afterAssignment,
+      updated_at: new Date().toISOString()
+    }, {
+      onConflict: 'chart_key,voter_id'
+    });
+
+  if(error){
+    console.error('担当の保存に失敗しました', error);
+    alert('担当の保存に失敗しました。少し待ってから再読み込みしてください。');
+    await loadAssignmentsFromSupabase();
+    return;
+  }
+
+  await loadAssignmentsFromSupabase();
+}
+
+function renderAssignmentControls(song){
+  const key = chartKey(song);
+  const currentAssignment = assignments[key] || '';
+  const counts = getAssignmentCounts(song);
+  const escapedKey = escapeAttr(key);
+
+  return `
+    <div class="vote-actions">
+      <button
+        class="vote-btn ${currentAssignment === 'give-up' ? 'active' : ''}"
+        type="button"
+        data-assignment-key="${escapedKey}"
+        data-assignment-value="give-up"
+      >お手上げ ${counts.giveUp}</button>
+      <button
+        class="vote-btn ${currentAssignment === 'take' ? 'active' : ''}"
+        type="button"
+        data-assignment-key="${escapedKey}"
+        data-assignment-value="take"
+      >任せて ${counts.take}</button>
+    </div>
+  `;
+}
+
 function selected(cls){
   return [...document.querySelectorAll('.' + cls + ':checked')].map(x => x.value);
 }
@@ -377,8 +516,9 @@ function render(){
         </div>
       </td>
       <td>${renderVoteControls(s)}</td>
+      <td>${renderAssignmentControls(s)}</td>
     </tr>
-  `).join('') || '<tr><td colspan="4" class="muted">該当なし</td></tr>';
+  `).join('') || '<tr><td colspan="5" class="muted">該当なし</td></tr>';
 
   count.textContent = `${filtered.length}件 / ${songs.length}件`;
 }
@@ -402,21 +542,28 @@ document.getElementById('clear').onclick = () => {
 });
 
 tbody.addEventListener('click', event => {
-  const button = event.target.closest('.vote-btn');
+  const voteButton = event.target.closest('[data-vote-key]');
 
-  if(!button){
+  if(voteButton){
+    setVote(voteButton.dataset.voteKey, voteButton.dataset.voteValue);
     return;
   }
 
-  setVote(button.dataset.voteKey, button.dataset.voteValue);
+  const assignmentButton = event.target.closest('[data-assignment-key]');
+
+  if(assignmentButton){
+    setAssignment(assignmentButton.dataset.assignmentKey, assignmentButton.dataset.assignmentValue);
+  }
 });
 
 async function init(){
   await loadSongs();
   await loadVotesFromSupabase();
+  await loadAssignmentsFromSupabase();
 
   setInterval(() => {
     loadVotesFromSupabase();
+    loadAssignmentsFromSupabase();
   }, POLL_INTERVAL_MS);
 }
 
